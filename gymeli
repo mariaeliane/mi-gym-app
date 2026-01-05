@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Gym Pro Max</title>
+    <style>
+        body { font-family: 'Segoe UI', sans-serif; background: #121212; color: white; text-align: center; padding: 15px; overflow: hidden; }
+        .card { background: #1e1e1e; padding: 25px; border-radius: 30px; box-shadow: 0 10px 30px rgba(0,0,0,0.5); max-width: 400px; margin: auto; border: 1px solid #333; }
+        h1 { color: #00ff88; margin-bottom: 5px; font-size: 28px; }
+        .serie-info { font-size: 18px; color: #888; margin-bottom: 10px; }
+        .timer-container { display: flex; align-items: center; justify-content: center; gap: 20px; margin: 20px 0; }
+        .timer-display { font-size: 75px; font-weight: bold; color: #00ff88; font-variant-numeric: tabular-nums; }
+        .btn-time { background: #333; color: white; border: none; border-radius: 50%; width: 45px; height: 45px; font-weight: bold; }
+        .main-controls { display: flex; flex-direction: column; gap: 12px; margin-top: 25px; }
+        button { border-radius: 18px; border: none; font-weight: bold; cursor: pointer; }
+        .btn-next { background: #007bff; color: white; padding: 22px; font-size: 20px; }
+        .btn-prev { background: #333; color: #aaa; padding: 12px; font-size: 14px; }
+        .btn-reset { background: transparent; color: #444; font-size: 11px; margin-top: 25px; }
+        .next-up { font-size: 13px; color: #555; margin-top: 25px; text-transform: uppercase; letter-spacing: 2px; }
+    </style>
+</head>
+<body>
+
+    <div class="card">
+        <h1 id="exercise-name">Cargando...</h1>
+        <div class="serie-info" id="serie-count">Serie 1 de 4</div>
+        
+        <div class="timer-container">
+            <button class="btn-time" onclick="adjustTime(-15)">-15</button>
+            <div class="timer-display" id="display">00:00</div>
+            <button class="btn-time" onclick="adjustTime(15)">+15</button>
+        </div>
+        
+        <div class="main-controls">
+            <button class="btn-next" onclick="handleNext()">SIGUIENTE SERIE</button>
+            <button class="btn-prev" onclick="handlePrev()">← VOLVER</button>
+        </div>
+        <button class="btn-reset" onclick="resetApp()">REINICIAR RUTINA</button>
+    </div>
+    <div class="next-up" id="next-exercise"></div>
+
+    <script>
+        const rutina = [
+            { nombre: "Peso Muerto", series: 4, descanso: 90 },
+            { nombre: "Sentadilla", series: 4, descanso: 90 },
+            { nombre: "Hip Thrust", series: 4, descanso: 60 },
+            { nombre: "Sentadilla Búlgara", series: 4, descanso: 45 },
+            { nombre: "Femoral Deitada", series: 4, descanso: 60 },
+            { nombre: "Abductores", series: 4, descanso: 45 }
+        ];
+
+        let exIndex = 0;
+        let serieActual = 1;
+        let endTime; 
+        let timerInterval;
+        let wakeLock = null;
+        const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+
+        async function requestWakeLock() {
+            if ('wakeLock' in navigator) {
+                try {
+                    wakeLock = await navigator.wakeLock.request('screen');
+                } catch (err) { console.log("WakeLock failed"); }
+            }
+        }
+
+        function playTriplePip() {
+            let count = 0;
+            const interval = setInterval(() => {
+                const osc = audioCtx.createOscillator();
+                const gain = audioCtx.createGain();
+                osc.connect(gain); gain.connect(audioCtx.destination);
+                osc.frequency.value = 880; gain.gain.value = 0.1;
+                osc.start(); osc.stop(audioCtx.currentTime + 0.2);
+                count++;
+                if (count >= 3) clearInterval(interval);
+            }, 500);
+        }
+
+        function handleNext() {
+            if (audioCtx.state === 'suspended') audioCtx.resume();
+            requestWakeLock();
+            
+            const ex = rutina[exIndex];
+            if (serieActual >= ex.series) {
+                if (exIndex < rutina.length - 1) { exIndex++; serieActual = 1; }
+                else { alert("¡Entrenamiento terminado!"); resetApp(); return; }
+            } else { serieActual++; }
+            
+            startTimer(ex.descanso);
+            updateUI();
+        }
+
+        function startTimer(seconds) {
+            clearInterval(timerInterval);
+            endTime = Date.now() + (seconds * 1000);
+            updateDisplay();
+            
+            timerInterval = setInterval(() => {
+                const remaining = Math.round((endTime - Date.now()) / 1000);
+                if (remaining <= 0) {
+                    clearInterval(timerInterval);
+                    document.getElementById('display').innerText = "00:00";
+                    playTriplePip();
+                } else {
+                    updateDisplay(remaining);
+                }
+            }, 500);
+        }
+
+        function adjustTime(seconds) {
+            endTime += (seconds * 1000);
+            updateDisplay();
+        }
+
+        function updateDisplay(forcedSeconds) {
+            const totalSeconds = forcedSeconds !== undefined ? forcedSeconds : Math.round((endTime - Date.now()) / 1000);
+            const r = Math.max(0, totalSeconds);
+            const mins = Math.floor(r / 60);
+            const secs = r % 60;
+            document.getElementById('display').innerText = `${mins.toString().padStart(2,'0')}:${secs.toString().padStart(2,'0')}`;
+        }
+
+        function updateUI() {
+            const ex = rutina[exIndex];
+            document.getElementById('exercise-name').innerText = ex.nombre;
+            document.getElementById('serie-count').innerText = `Serie ${serieActual} de ${ex.series}`;
+            const nextEx = rutina[exIndex + 1];
+            document.getElementById('next-exercise').innerText = nextEx ? `Siguiente: ${nextEx.nombre}` : "¡Final!";
+        }
+
+        function handlePrev() {
+            if (serieActual > 1) serieActual--;
+            else if (exIndex > 0) { exIndex--; serieActual = rutina[exIndex].series; }
+            clearInterval(timerInterval);
+            endTime = Date.now();
+            updateDisplay();
+            updateUI();
+        }
+
+        function resetApp() {
+            if(confirm("¿Reiniciar?")) { location.reload(); }
+        }
+
+        updateUI();
+    </script>
+</body>
+</html>
